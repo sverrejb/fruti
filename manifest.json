@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Recently Used Tabs Indicator",
+  "version": "1.0",
+  "author": "Sverre Johann Bjørke",
+  "homepage_url": "https://github.com/sverrejb/fruti",
+  "description": "Tracks the 5 most recently used tabs and adds visual indicators to their titles. Requires access to all websites to modify tab titles (does not read page content).",
+  "icons": {
+    "48": "icon.png",
+    "96": "icon.png",
+    "128": "icon.png"
+  },
+  "permissions": [
+    "tabs",
+    "storage"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": false
+  }
+}
