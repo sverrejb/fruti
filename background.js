@@ -1,7 +1,7 @@
 // Active tab is excluded from tracking so it never shows an indicator
 const MAX_TRACKED_TABS = 5;
 const windowStates = new Map();
-let currentStyle = 'blocks';
+let currentStyle = 'numbers';
 let customIndicators = ['1', '2', '3', '4', '5'];
 
 function getWindowState(windowId) {
@@ -16,7 +16,7 @@ function getWindowState(windowId) {
 
 async function loadIndicatorStyle() {
   const result = await browser.storage.local.get(['indicatorStyle', 'customIndicators']);
-  currentStyle = result.indicatorStyle || 'blocks';
+  currentStyle = result.indicatorStyle || 'numbers';
   customIndicators = result.customIndicators || ['1', '2', '3', '4', '5'];
 }
 

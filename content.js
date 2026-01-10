@@ -14,7 +14,7 @@ const INDICATOR_STYLES = {
 
 let originalTitle = document.title;
 let currentRank = null;
-let currentStyle = 'blocks';
+let currentStyle = 'numbers';
 let customIndicators = ['1', '2', '3', '4', '5'];
 
 // Needed to strip old indicators when switching styles or when page updates its title
@@ -46,7 +46,7 @@ function updateTitle(rank, style, customInds) {
     customIndicators = customInds;
   }
 
-  const indicators = currentStyle === 'custom' ? customIndicators : (INDICATOR_STYLES[currentStyle] || INDICATOR_STYLES.blocks);
+  const indicators = currentStyle === 'custom' ? customIndicators : (INDICATOR_STYLES[currentStyle] || INDICATOR_STYLES.numbers);
 
   if (rank === null) {
     document.title = originalTitle;
