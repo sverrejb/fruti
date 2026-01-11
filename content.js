@@ -46,11 +46,13 @@ function updateTitle(rank, style, customInds) {
     customIndicators = customInds;
   }
 
-  const indicators = currentStyle === 'custom' ? customIndicators : (INDICATOR_STYLES[currentStyle] || INDICATOR_STYLES.numbers);
-
   if (rank === null) {
     document.title = originalTitle;
-  } else if (rank >= 0 && rank < indicators.length) {
+    return;
+  }
+
+  const indicators = currentStyle === 'custom' ? customIndicators : (INDICATOR_STYLES[currentStyle] || INDICATOR_STYLES.numbers);
+  if (rank >= 0 && rank < indicators.length) {
     const indicator = indicators[rank];
     document.title = `${indicator} ${originalTitle}`;
   }

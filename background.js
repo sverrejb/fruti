@@ -3,6 +3,8 @@ const MAX_TRACKED_TABS = 5;
 const windowStates = new Map();
 let currentStyle = 'numbers';
 let customIndicators = ['1', '2', '3', '4', '5'];
+let enableMinTabThreshold = false;
+let minTabThreshold = 10;
 
 function getWindowState(windowId) {
   if (!windowStates.has(windowId)) {
@@ -15,9 +17,11 @@ function getWindowState(windowId) {
 }
 
 async function loadIndicatorStyle() {
-  const result = await browser.storage.local.get(['indicatorStyle', 'customIndicators']);
+  const result = await browser.storage.local.get(['indicatorStyle', 'customIndicators', 'enableMinTabThreshold', 'minTabThreshold']);
   currentStyle = result.indicatorStyle || 'numbers';
   customIndicators = result.customIndicators || ['1', '2', '3', '4', '5'];
+  enableMinTabThreshold = result.enableMinTabThreshold || false;
+  minTabThreshold = result.minTabThreshold || 10;
 }
 
 function findTabIndex(windowId, tabId) {
@@ -48,8 +52,24 @@ async function sendRankRemoval(tabId) {
   }
 }
 
+async function shouldTrackWindow(windowId) {
+  if (!enableMinTabThreshold) {
+    return true;
+  }
+  const tabs = await browser.tabs.query({ windowId: windowId });
+  return tabs.length >= minTabThreshold;
+}
+
 async function updateAllTabRanks(windowId) {
   const state = getWindowState(windowId);
+
+  if (!await shouldTrackWindow(windowId)) {
+    for (let i = 0; i < state.recentTabs.length; i++) {
+      await sendRankRemoval(state.recentTabs[i]);
+    }
+    return;
+  }
+
   for (let i = 0; i < state.recentTabs.length; i++) {
     await sendRankUpdate(state.recentTabs[i], i);
   }
@@ -106,11 +126,21 @@ browser.windows.onRemoved.addListener((windowId) => {
   windowStates.delete(windowId);
 });
 
+browser.tabs.onCreated.addListener(async (tab) => {
+  await updateAllTabRanks(tab.windowId);
+});
+
 browser.runtime.onMessage.addListener((message) => {
   if (message.type === 'STYLE_CHANGED') {
     currentStyle = message.style;
     if (message.customIndicators) {
       customIndicators = message.customIndicators;
+    }
+    if (message.enableMinTabThreshold !== undefined) {
+      enableMinTabThreshold = message.enableMinTabThreshold;
+    }
+    if (message.minTabThreshold !== undefined) {
+      minTabThreshold = message.minTabThreshold;
     }
     for (const windowId of windowStates.keys()) {
       updateAllTabRanks(windowId);
