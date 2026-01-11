@@ -10,7 +10,9 @@ function getWindowState(windowId) {
   if (!windowStates.has(windowId)) {
     windowStates.set(windowId, {
       recentTabs: [],
-      currentActiveTabId: null
+      currentActiveTabId: null,
+      tabCount: 0,
+      lastRanks: new Map()
     });
   }
   return windowStates.get(windowId);
@@ -52,27 +54,45 @@ async function sendRankRemoval(tabId) {
   }
 }
 
-async function shouldTrackWindow(windowId) {
+function shouldTrackWindow(windowId) {
   if (!enableMinTabThreshold) {
     return true;
   }
-  const tabs = await browser.tabs.query({ windowId: windowId });
-  return tabs.length >= minTabThreshold;
+  const state = getWindowState(windowId);
+  return state.tabCount >= minTabThreshold;
 }
 
 async function updateAllTabRanks(windowId) {
   const state = getWindowState(windowId);
 
-  if (!await shouldTrackWindow(windowId)) {
+  if (!shouldTrackWindow(windowId)) {
     for (let i = 0; i < state.recentTabs.length; i++) {
-      await sendRankRemoval(state.recentTabs[i]);
+      const tabId = state.recentTabs[i];
+      if (state.lastRanks.has(tabId)) {
+        await sendRankRemoval(tabId);
+        state.lastRanks.delete(tabId);
+      }
     }
     return;
   }
 
+  const newRanks = new Map();
   for (let i = 0; i < state.recentTabs.length; i++) {
-    await sendRankUpdate(state.recentTabs[i], i);
+    const tabId = state.recentTabs[i];
+    newRanks.set(tabId, i);
+
+    if (state.lastRanks.get(tabId) !== i) {
+      await sendRankUpdate(tabId, i);
+    }
   }
+
+  for (const [tabId] of state.lastRanks) {
+    if (!newRanks.has(tabId)) {
+      await sendRankRemoval(tabId);
+    }
+  }
+
+  state.lastRanks = newRanks;
 }
 
 async function onTabActivated(tabId, windowId) {
@@ -111,6 +131,8 @@ browser.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
   const windowId = removeInfo.windowId;
   const state = getWindowState(windowId);
 
+  state.tabCount = Math.max(0, state.tabCount - 1);
+
   if (tabId === state.currentActiveTabId) {
     state.currentActiveTabId = null;
   }
@@ -122,12 +144,13 @@ browser.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
   }
 });
 
-browser.windows.onRemoved.addListener((windowId) => {
-  windowStates.delete(windowId);
+browser.tabs.onCreated.addListener((tab) => {
+  const state = getWindowState(tab.windowId);
+  state.tabCount++;
 });
 
-browser.tabs.onCreated.addListener(async (tab) => {
-  await updateAllTabRanks(tab.windowId);
+browser.windows.onRemoved.addListener((windowId) => {
+  windowStates.delete(windowId);
 });
 
 browser.runtime.onMessage.addListener((message) => {
@@ -152,9 +175,11 @@ loadIndicatorStyle().then(() => {
   return browser.windows.getAll({populate: true, windowTypes: ['normal']});
 }).then(windows => {
   for (const window of windows) {
+    const state = getWindowState(window.id);
+    state.tabCount = window.tabs.length;
+
     const activeTabs = window.tabs.filter(tab => tab.active);
     if (activeTabs.length > 0) {
-      const state = getWindowState(window.id);
       state.currentActiveTabId = activeTabs[0].id;
     }
   }

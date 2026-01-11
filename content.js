@@ -16,15 +16,23 @@ let originalTitle = document.title;
 let currentRank = null;
 let currentStyle = 'numbers';
 let customIndicators = ['1', '2', '3', '4', '5'];
+let cachedIndicators = null;
 
-// Needed to strip old indicators when switching styles or when page updates its title
-function getAllIndicators() {
+function rebuildIndicatorsCache() {
   const allIndicators = [];
   for (const style in INDICATOR_STYLES) {
     allIndicators.push(...INDICATOR_STYLES[style]);
   }
   allIndicators.push(...customIndicators);
-  return allIndicators;
+  cachedIndicators = allIndicators;
+}
+
+// Needed to strip old indicators when switching styles or when page updates its title
+function getAllIndicators() {
+  if (!cachedIndicators) {
+    rebuildIndicatorsCache();
+  }
+  return cachedIndicators;
 }
 
 function stripIndicator(title) {
@@ -44,6 +52,7 @@ function updateTitle(rank, style, customInds) {
   }
   if (customInds) {
     customIndicators = customInds;
+    cachedIndicators = null;
   }
 
   if (rank === null) {
@@ -67,17 +76,25 @@ browser.runtime.onMessage.addListener((message) => {
 });
 
 // Pages can change their own titles dynamically, so we watch for changes and reapply our indicator
+let titleChangeTimeout = null;
 const titleObserver = new MutationObserver(() => {
-  const newTitle = document.title;
-  const cleanTitle = stripIndicator(newTitle);
-
-  // Avoid reapplying indicator if only our own change triggered this
-  if (cleanTitle !== originalTitle) {
-    originalTitle = cleanTitle;
-    if (currentRank !== null) {
-      updateTitle(currentRank, currentStyle, customIndicators);
-    }
+  if (titleChangeTimeout) {
+    clearTimeout(titleChangeTimeout);
   }
+
+  titleChangeTimeout = setTimeout(() => {
+    const newTitle = document.title;
+    const cleanTitle = stripIndicator(newTitle);
+
+    // Avoid reapplying indicator if only our own change triggered this
+    if (cleanTitle !== originalTitle) {
+      originalTitle = cleanTitle;
+      if (currentRank !== null) {
+        updateTitle(currentRank, currentStyle, customIndicators);
+      }
+    }
+    titleChangeTimeout = null;
+  }, 150);
 });
 
 const titleElement = document.querySelector('title');
