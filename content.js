@@ -3,7 +3,6 @@ if (window.hasOwnProperty('recentTabsTrackerLoaded')) {
   console.log('Recent Tabs Tracker content script already loaded, skipping');
 } else {
   window.recentTabsTrackerLoaded = true;
-  console.log('Recent Tabs Tracker content script loaded');
 
 const INDICATOR_STYLES = {
   numbers: ['[1]', '[2]', '[3]', '[4]', '[5]'],
@@ -12,7 +11,6 @@ const INDICATOR_STYLES = {
   moonPhases: ['🌕', '🌖', '🌗', '🌘', '🌑']
 };
 
-let originalTitle = document.title;
 let currentRank = null;
 let currentStyle = 'numbers';
 let customIndicators = ['1', '2', '3', '4', '5'];
@@ -27,7 +25,7 @@ function rebuildIndicatorsCache() {
   cachedIndicators = allIndicators;
 }
 
-// Needed to strip old indicators when switching styles or when page updates its title
+// Cache avoids rebuilding indicator list on every stripIndicator call
 function getAllIndicators() {
   if (!cachedIndicators) {
     rebuildIndicatorsCache();
@@ -44,6 +42,9 @@ function stripIndicator(title) {
   }
   return title;
 }
+
+// Prevents stacking indicators on reload or when tab already has one
+let originalTitle = stripIndicator(document.title);
 
 function updateTitle(rank, style, customInds) {
   currentRank = rank;
@@ -75,18 +76,29 @@ browser.runtime.onMessage.addListener((message) => {
   }
 });
 
-// Pages can change their own titles dynamically, so we watch for changes and reapply our indicator
+// Syncs rank on load/navigation since content scripts don't persist
+browser.runtime.sendMessage({type: 'REQUEST_RANK'}).then(response => {
+  if (response && response.rank !== null && response.rank !== undefined) {
+    updateTitle(response.rank, response.style, response.customIndicators);
+  }
+}).catch(error => {
+  // Fails gracefully if background not ready or tab closing
+  console.log('Could not request rank:', error);
+});
+
+// Gmail, YouTube, etc. change titles; MutationObserver reapplies indicators
 let titleChangeTimeout = null;
 const titleObserver = new MutationObserver(() => {
   if (titleChangeTimeout) {
     clearTimeout(titleChangeTimeout);
   }
 
+  // Debounced to avoid excessive processing on frequently changing titles
   titleChangeTimeout = setTimeout(() => {
     const newTitle = document.title;
     const cleanTitle = stripIndicator(newTitle);
 
-    // Avoid reapplying indicator if only our own change triggered this
+    // Ignores our own updates to prevent infinite loop
     if (cleanTitle !== originalTitle) {
       originalTitle = cleanTitle;
       if (currentRank !== null) {

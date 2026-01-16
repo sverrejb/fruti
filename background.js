@@ -1,4 +1,4 @@
-// Active tab is excluded from tracking so it never shows an indicator
+// Tracking excludes active tab to keep indicators only on background tabs
 const MAX_TRACKED_TABS = 5;
 const windowStates = new Map();
 let currentStyle = 'numbers';
@@ -16,6 +16,33 @@ function getWindowState(windowId) {
     });
   }
   return windowStates.get(windowId);
+}
+
+async function saveWindowStates() {
+  const statesObj = {};
+  for (const [windowId, state] of windowStates.entries()) {
+    statesObj[windowId] = {
+      recentTabs: state.recentTabs,
+      currentActiveTabId: state.currentActiveTabId,
+      tabCount: state.tabCount
+      // Don't save lastRanks Map, it's just for diffing
+    };
+  }
+  await browser.storage.local.set({ windowStates: statesObj });
+}
+
+async function loadWindowStates() {
+  const result = await browser.storage.local.get('windowStates');
+  if (result.windowStates) {
+    for (const [windowId, state] of Object.entries(result.windowStates)) {
+      windowStates.set(parseInt(windowId), {
+        recentTabs: state.recentTabs || [],
+        currentActiveTabId: state.currentActiveTabId || null,
+        tabCount: state.tabCount || 0,
+        lastRanks: new Map()
+      });
+    }
+  }
 }
 
 async function loadIndicatorStyle() {
@@ -40,7 +67,7 @@ async function sendRankUpdate(tabId, rank) {
       customIndicators: customIndicators
     });
   } catch (error) {
-    // Tab might not have content script (system pages like about:, chrome://, etc.)
+    // System pages (about:, chrome://) don't allow content scripts
   }
 }
 
@@ -50,7 +77,7 @@ async function sendRankRemoval(tabId) {
       type: 'REMOVE_RANK'
     });
   } catch (error) {
-    // Tab might not have content script (system pages like about:, chrome://, etc.)
+    // System pages (about:, chrome://) don't allow content scripts
   }
 }
 
@@ -62,6 +89,7 @@ function shouldTrackWindow(windowId) {
   return state.tabCount >= minTabThreshold;
 }
 
+// Only sends updates to tabs whose rank changed, avoiding unnecessary IPC
 async function updateAllTabRanks(windowId) {
   const state = getWindowState(windowId);
 
@@ -121,6 +149,7 @@ async function onTabActivated(tabId, windowId) {
   state.currentActiveTabId = tabId;
 
   await updateAllTabRanks(windowId);
+  await saveWindowStates();
 }
 
 browser.tabs.onActivated.addListener(async (activeInfo) => {
@@ -142,18 +171,22 @@ browser.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     state.recentTabs.splice(tabIndex, 1);
     await updateAllTabRanks(windowId);
   }
+
+  await saveWindowStates();
 });
 
-browser.tabs.onCreated.addListener((tab) => {
+browser.tabs.onCreated.addListener(async (tab) => {
   const state = getWindowState(tab.windowId);
   state.tabCount++;
+  await saveWindowStates();
 });
 
-browser.windows.onRemoved.addListener((windowId) => {
+browser.windows.onRemoved.addListener(async (windowId) => {
   windowStates.delete(windowId);
+  await saveWindowStates();
 });
 
-browser.runtime.onMessage.addListener((message) => {
+browser.runtime.onMessage.addListener((message, sender) => {
   if (message.type === 'STYLE_CHANGED') {
     currentStyle = message.style;
     if (message.customIndicators) {
@@ -168,10 +201,26 @@ browser.runtime.onMessage.addListener((message) => {
     for (const windowId of windowStates.keys()) {
       updateAllTabRanks(windowId);
     }
+  } else if (message.type === 'REQUEST_RANK') {
+    // Allows content scripts to sync on load/navigation
+    if (sender.tab) {
+      const state = getWindowState(sender.tab.windowId);
+      const index = state.recentTabs.indexOf(sender.tab.id);
+
+      if (!shouldTrackWindow(sender.tab.windowId)) {
+        return Promise.resolve({rank: null, style: currentStyle, customIndicators: customIndicators});
+      }
+
+      if (index >= 0 && index < MAX_TRACKED_TABS) {
+        return Promise.resolve({rank: index, style: currentStyle, customIndicators: customIndicators});
+      } else {
+        return Promise.resolve({rank: null, style: currentStyle, customIndicators: customIndicators});
+      }
+    }
   }
 });
 
-loadIndicatorStyle().then(() => {
+Promise.all([loadIndicatorStyle(), loadWindowStates()]).then(() => {
   return browser.windows.getAll({populate: true, windowTypes: ['normal']});
 }).then(windows => {
   for (const window of windows) {
@@ -183,4 +232,5 @@ loadIndicatorStyle().then(() => {
       state.currentActiveTabId = activeTabs[0].id;
     }
   }
+  return saveWindowStates();
 });

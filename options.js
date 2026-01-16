@@ -82,7 +82,7 @@ function saveSettings() {
       message.classList.remove('show');
     }, 3000);
 
-    // Notify background script so all tabs update immediately
+    // Triggers background to update all tabs without requiring reload
     browser.runtime.sendMessage({
       type: 'STYLE_CHANGED',
       style: style,
