@@ -45,6 +45,12 @@ function stripIndicator(title) {
 
 // Prevents stacking indicators on reload or when tab already has one
 let originalTitle = stripIndicator(document.title);
+let lastSetTitle = document.title;
+
+function setTitle(title) {
+  document.title = title;
+  lastSetTitle = document.title;
+}
 
 function updateTitle(rank, style, customInds) {
   currentRank = rank;
@@ -57,14 +63,14 @@ function updateTitle(rank, style, customInds) {
   }
 
   if (rank === null) {
-    document.title = originalTitle;
+    setTitle(originalTitle);
     return;
   }
 
   const indicators = currentStyle === 'custom' ? customIndicators : (INDICATOR_STYLES[currentStyle] || INDICATOR_STYLES.numbers);
   if (rank >= 0 && rank < indicators.length) {
     const indicator = indicators[rank];
-    document.title = `${indicator} ${originalTitle}`;
+    setTitle(`${indicator} ${originalTitle}`);
   }
 }
 
@@ -89,33 +95,31 @@ browser.runtime.sendMessage({type: 'REQUEST_RANK'}).then(response => {
 // Gmail, YouTube, etc. change titles; MutationObserver reapplies indicators
 let titleChangeTimeout = null;
 const titleObserver = new MutationObserver(() => {
+  if (document.title === lastSetTitle) {
+    return;
+  }
   if (titleChangeTimeout) {
     clearTimeout(titleChangeTimeout);
   }
 
   // Debounced to avoid excessive processing on frequently changing titles
   titleChangeTimeout = setTimeout(() => {
-    const newTitle = document.title;
-    const cleanTitle = stripIndicator(newTitle);
-
-    // Ignores our own updates to prevent infinite loop
-    if (cleanTitle !== originalTitle) {
-      originalTitle = cleanTitle;
-      if (currentRank !== null) {
-        updateTitle(currentRank, currentStyle, customIndicators);
-      }
-    }
     titleChangeTimeout = null;
+    if (document.title === lastSetTitle) {
+      return;
+    }
+    originalTitle = stripIndicator(document.title);
+    lastSetTitle = document.title;
+    if (currentRank !== null) {
+      updateTitle(currentRank, currentStyle, customIndicators);
+    }
   }, 150);
 });
 
-const titleElement = document.querySelector('title');
-if (titleElement) {
-  titleObserver.observe(titleElement, {
-    childList: true,
-    characterData: true,
-    subtree: true
-  });
-}
+titleObserver.observe(document.head || document.documentElement, {
+  childList: true,
+  characterData: true,
+  subtree: true
+});
 
 }

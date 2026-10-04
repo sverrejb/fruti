@@ -152,11 +152,28 @@ async function onTabActivated(tabId, windowId) {
   await saveWindowStates();
 }
 
+const ready = Promise.all([loadIndicatorStyle(), loadWindowStates()]).then(() => {
+  return browser.windows.getAll({populate: true, windowTypes: ['normal']});
+}).then(windows => {
+  for (const window of windows) {
+    const state = getWindowState(window.id);
+    state.tabCount = window.tabs.length;
+
+    const activeTabs = window.tabs.filter(tab => tab.active);
+    if (state.currentActiveTabId === null && activeTabs.length > 0) {
+      state.currentActiveTabId = activeTabs[0].id;
+    }
+  }
+  return saveWindowStates();
+});
+
 browser.tabs.onActivated.addListener(async (activeInfo) => {
+  await ready;
   await onTabActivated(activeInfo.tabId, activeInfo.windowId);
 });
 
 browser.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
+  await ready;
   const windowId = removeInfo.windowId;
   const state = getWindowState(windowId);
 
@@ -176,17 +193,23 @@ browser.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
 });
 
 browser.tabs.onCreated.addListener(async (tab) => {
+  await ready;
   const state = getWindowState(tab.windowId);
   state.tabCount++;
   await saveWindowStates();
 });
 
 browser.windows.onRemoved.addListener(async (windowId) => {
+  await ready;
   windowStates.delete(windowId);
   await saveWindowStates();
 });
 
 browser.runtime.onMessage.addListener((message, sender) => {
+  return ready.then(() => handleMessage(message, sender));
+});
+
+function handleMessage(message, sender) {
   if (message.type === 'STYLE_CHANGED') {
     currentStyle = message.style;
     if (message.customIndicators) {
@@ -218,19 +241,4 @@ browser.runtime.onMessage.addListener((message, sender) => {
       }
     }
   }
-});
-
-Promise.all([loadIndicatorStyle(), loadWindowStates()]).then(() => {
-  return browser.windows.getAll({populate: true, windowTypes: ['normal']});
-}).then(windows => {
-  for (const window of windows) {
-    const state = getWindowState(window.id);
-    state.tabCount = window.tabs.length;
-
-    const activeTabs = window.tabs.filter(tab => tab.active);
-    if (activeTabs.length > 0) {
-      state.currentActiveTabId = activeTabs[0].id;
-    }
-  }
-  return saveWindowStates();
-});
+}
